@@ -1,9 +1,9 @@
 /* =========================================================
    App Web - Arborescence Photos Chambres
-   Génère un ZIP contenant toute l'arborescence de dossiers
+   Drag & Drop + Import dossier source complet
    ========================================================= */
 
-// ---------- Constantes (reprises du script Python) ----------
+// ---------- Constantes ----------
 const SUFFIXE_SANS_FCI   = "EN_ATTENTE_FCI";
 const MARQUEUR_A_VALIDER = "A_Valider";
 const LARGEUR_PREFIXE    = 3;
@@ -13,21 +13,52 @@ const PREFIXE_SANS_ORDRE = "ZZZ";
 const DOSSIERS_BASE  = ["MA", "MB", "MC", "MD", "VUE_ENSEMBLE", "ETIQ_CABLE"];
 const DOSSIERS_BOITE = ["CASSETTE", "BOITE", "MIRE", "ETIQ_BOITE"];
 
-// ---------- DOM ----------
-const $csvFile    = document.getElementById("csvFile");
-const $rootName   = document.getElementById("rootName");
-const $optPrefix  = document.getElementById("optPrefix");
-const $optBpeBox  = document.getElementById("optBpeBoxes");
-const $btnRun     = document.getElementById("btnRun");
-const $btnClear   = document.getElementById("btnClear");
-const $log        = document.getElementById("log");
-const $progWrap   = document.getElementById("progressWrap");
-const $progBar    = document.getElementById("progressBar");
-const $statCh     = document.getElementById("statChambres");
-const $statDos    = document.getElementById("statDossiers");
+const KEYWORDS_DEST = [
+  { keys: ["etiq_boite", "etiquette_boite", "etiqboite", "etiquetteboite", "etiq-boite", "etiqboite"], dest: "ETIQ_BOITE" },
+  { keys: ["etiq_cable", "etiquette_cable", "etiqcable", "etiquettecable", "etiq-cable"], dest: "ETIQ_CABLE" },
+  { keys: ["vue_ensemble", "vueensemble", "vue-ensemble", "vue_ens", "ensemble", "vue"], dest: "VUE_ENSEMBLE" },
+  { keys: ["cassette"], dest: "CASSETTE" },
+  { keys: ["boite", "boîte"], dest: "BOITE" },
+  { keys: ["mire"], dest: "MIRE" },
+  { keys: ["ma"], dest: "MA" },
+  { keys: ["mb"], dest: "MB" },
+  { keys: ["mc"], dest: "MC" },
+  { keys: ["md"], dest: "MD" },
+];
 
+// ---------- DOM ----------
+const $csvFile     = document.getElementById("csvFile");
+const $rootName    = document.getElementById("rootName");
+const $optPrefix   = document.getElementById("optPrefix");
+const $optBpeBox   = document.getElementById("optBpeBoxes");
+const $optMatch    = document.getElementById("optMatchMode");
+const $optKeepPath = document.getElementById("optKeepPath");
+const $btnRun      = document.getElementById("btnRun");
+const $btnClear    = document.getElementById("btnClear");
+const $btnClearPh  = document.getElementById("btnClearPhotos");
+const $btnPickFiles= document.getElementById("btnPickFiles");
+const $btnPickFold = document.getElementById("btnPickFolder");
+const $log         = document.getElementById("log");
+const $progWrap    = document.getElementById("progressWrap");
+const $progBar     = document.getElementById("progressBar");
+const $statCh      = document.getElementById("statChambres");
+const $statDos     = document.getElementById("statDossiers");
+const $statPh      = document.getElementById("statPhotos");
+const $statUn      = document.getElementById("statUnassigned");
+const $dropZone    = document.getElementById("dropZone");
+const $photoInput  = document.getElementById("photoInput");
+const $folderInput = document.getElementById("folderInput");
+const $photoList   = document.getElementById("photoList");
+const $filterBar   = document.getElementById("filterBar");
+const $loader      = document.getElementById("loader");
+const $loaderText  = document.getElementById("loaderText");
+
+// ---------- État ----------
 let csvContent = "";
 let csvFileName = "";
+let chambres = [];
+let photos = [];
+let currentFilter = "all";
 
 // ---------- Log ----------
 function log(msg, cls = "") {
@@ -38,13 +69,23 @@ function log(msg, cls = "") {
   $log.appendChild(line);
   $log.scrollTop = $log.scrollHeight;
 }
-function logOk(m)   { log("✅ " + m, "ok"); }
-function logErr(m)  { log("❌ " + m, "err"); }
-function logInfo(m) { log("ℹ️ " + m, "info"); }
-function logWarn(m) { log("⚠️ " + m, "warn"); }
-function logClear() { $log.innerHTML = ""; }
+const logOk   = m => log("✅ " + m, "ok");
+const logErr  = m => log("❌ " + m, "err");
+const logInfo = m => log("ℹ️ " + m, "info");
+const logWarn = m => log("⚠️ " + m, "warn");
+const logClear = () => { $log.innerHTML = ""; };
 
-// ---------- Utilitaires (repris du Python) ----------
+$btnClear.addEventListener("click", logClear);
+
+function showLoader(text) {
+  $loaderText.textContent = text || "Traitement en cours…";
+  $loader.classList.add("active");
+}
+function hideLoader() {
+  $loader.classList.remove("active");
+}
+
+// ---------- Utilitaires ----------
 function safeInt(v) {
   const n = parseInt(String(v).trim(), 10);
   return isNaN(n) ? null : n;
@@ -97,27 +138,20 @@ function detecterDelimiteur(contenu) {
   return ";";
 }
 
-// ---------- Parser CSV simple ----------
 function parseCSV(contenu, sep) {
   const lignes = [];
-  let cur = "";
-  let row = [];
-  let inQuote = false;
-
+  let cur = "", row = [], inQuote = false;
   for (let i = 0; i < contenu.length; i++) {
-    const c = contenu[i];
-    const next = contenu[i + 1];
-
+    const c = contenu[i], next = contenu[i + 1];
     if (inQuote) {
       if (c === '"' && next === '"') { cur += '"'; i++; }
       else if (c === '"') { inQuote = false; }
       else { cur += c; }
     } else {
-      if (c === '"') { inQuote = true; }
+      if (c === '"') inQuote = true;
       else if (c === sep) { row.push(cur); cur = ""; }
       else if (c === "\n") { row.push(cur); lignes.push(row); row = []; cur = ""; }
-      else if (c === "\r") { /* skip */ }
-      else { cur += c; }
+      else if (c !== "\r") cur += c;
     }
   }
   if (cur !== "" || row.length) { row.push(cur); lignes.push(row); }
@@ -138,7 +172,7 @@ function rowsToObjects(lignes) {
   return out;
 }
 
-// ---------- Lecture fichier ----------
+// ---------- Lecture CSV ----------
 $csvFile.addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -147,41 +181,20 @@ $csvFile.addEventListener("change", async (e) => {
     csvFileName = file.name;
     const nbLignes = csvContent.split(/\r?\n/).length - 1;
     logOk(`CSV chargé : ${file.name} (${nbLignes} lignes approx.)`);
-    $btnRun.disabled = false;
+    chambres = extraireChambres(csvContent);
+    logInfo(`${chambres.length} chambres valides détectées`);
+    recalculerAssignations();
+    majUI();
   } catch (err) {
     logErr("Lecture CSV impossible : " + err.message);
   }
 });
 
-$btnClear.addEventListener("click", () => logClear());
-
-// ---------- Génération ----------
-$btnRun.addEventListener("click", async () => {
-  if (!csvContent) return;
-  $btnRun.disabled = true;
-  $progWrap.style.display = "block";
-  $progBar.style.width = "0%";
-  $statCh.textContent = "0";
-  $statDos.textContent = "0";
-
-  try {
-    await genererZip();
-  } catch (err) {
-    logErr("Erreur : " + err.message);
-    console.error(err);
-  } finally {
-    $btnRun.disabled = false;
-  }
-});
-
-async function genererZip() {
-  logInfo("Démarrage de la génération…");
-
-  const sep = detecterDelimiteur(csvContent);
-  const lignes = parseCSV(csvContent, sep);
+function extraireChambres(contenu) {
+  const sep = detecterDelimiteur(contenu);
+  const lignes = parseCSV(contenu, sep);
   const rows = rowsToObjects(lignes);
-
-  if (!rows.length) throw new Error("CSV vide");
+  if (!rows.length) return [];
 
   const entetes = Object.keys(rows[0]);
   const colCommune = trouverColonne(entetes, "COMMUNE");
@@ -194,11 +207,7 @@ async function genererZip() {
 
   if (!colCh1) throw new Error("Colonne CODE_CH1 introuvable dans le CSV");
 
-  logInfo(`Colonnes détectées : CH1=${colCh1}, Commune=${colCommune || "-"}, ` +
-          `FCI=${colFci || "-"}, Câble=${colCable || "-"}, BPE=${colBpe || "-"}, Ordre=${colOrdre || "-"}`);
-
-  // Construction liste chambres
-  const chambres = [];
+  const out = [];
   for (const r of rows) {
     const commune = nettoyerNom(r[colCommune] || "");
     const fci     = colFci ? nettoyerNom(r[colFci] || "") : "";
@@ -207,119 +216,179 @@ async function genererZip() {
     const bpe     = colBpe ? nettoyerNom(r[colBpe] || "") : "";
     const ordre   = colOrdre ? nettoyerNom(r[colOrdre] || "") : "";
     if (!commune && !ch1) continue;
-    chambres.push({ commune, fci: fci || "Sans_FCI", cable, ch1, bpe, ordre });
+    out.push({ commune, fci: fci || "Sans_FCI", cable, ch1, bpe, ordre });
   }
 
-  if (!chambres.length) throw new Error("Aucune chambre valide dans le CSV");
-  logOk(`${chambres.length} chambres à traiter`);
-
-  // Tri par ordre
-  const getOrdre = (c) => {
-    const n = safeInt(c.ordre);
-    return n !== null ? n : 999999;
-  };
-  chambres.sort((a, b) => getOrdre(a) - getOrdre(b));
-
-  // Préparer le ZIP
-  const zip = new JSZip();
-  const rootFolder = $rootName.value.trim() || "SnakePhotos";
-  const rootZip = zip.folder(rootFolder);
-
-  // Créer les sous-dossiers vides (via fichier .keep pour forcer l'entrée)
-  function creerDossierVide(folderPath) {
-    rootZip.file(folderPath + "/.keep", "");
-  }
-
-  let dossiersCrees = 0;
-  const total = chambres.length;
-
-  for (let i = 0; i < chambres.length; i++) {
-    const data = chambres[i];
-
-    const niveau1 = data.fci !== "Sans_FCI"
-      ? `${data.commune}-${data.fci}`
-      : `${data.commune}-${SUFFIXE_SANS_FCI}`;
-
-    let chemin = niveau1;
-    if (data.cable) chemin += "/" + data.cable;
-
-    const prefixe = $optPrefix.checked ? construirePrefixeOrdre(data.ordre) : "";
-    let nomChambre = data.ch1 ? `CH ${data.ch1}` : "CH";
-    if (!data.ordre) nomChambre += ` (${MARQUEUR_A_VALIDER})`;
-    if (data.bpe)    nomChambre += ` (${data.bpe})`;
-
-    const cheminCh = chemin + "/" + prefixe + nomChambre;
-
-    // Sous-dossiers de base
-    for (const sous of DOSSIERS_BASE) {
-      creerDossierVide(cheminCh + "/" + sous);
-      dossiersCrees++;
-    }
-
-    // Sous-dossiers boîte si BPE
-    if (data.bpe && $optBpeBox.checked) {
-      for (const sous of DOSSIERS_BOITE) {
-        creerDossierVide(cheminCh + "/" + sous);
-        dossiersCrees++;
-      }
-    }
-
-    // Mettre à jour UI tous les 10 items
-    if (i % 10 === 0 || i === total - 1) {
-      const pct = Math.round(((i + 1) / total) * 100);
-      $progBar.style.width = pct + "%";
-      $statCh.textContent = i + 1;
-      $statDos.textContent = dossiersCrees;
-      await new Promise(r => setTimeout(r, 0)); // laisser respirer l'UI
-    }
-  }
-
-  logOk(`Arborescence construite : ${dossiersCrees} dossiers`);
-
-  // Ajouter un fichier README explicatif
-  const readme = [
-    "====================================================",
-    "ARBORESCENCE PHOTOS CHAMBRES",
-    "====================================================",
-    "",
-    `Généré le : ${new Date().toLocaleString()}`,
-    `Source CSV : ${csvFileName}`,
-    `Nombre de chambres : ${chambres.length}`,
-    `Nombre de dossiers : ${dossiersCrees}`,
-    "",
-    "STRUCTURE ATTENDUE DANS CHAQUE DOSSIER CHAMBRE :",
-    "",
-    ...DOSSIERS_BASE.map(d => `  - ${d}`),
-    "",
-    "ET SI BPE (Boîte) :",
-    "",
-    ...DOSSIERS_BOITE.map(d => `  - ${d}`),
-    "",
-    "Dézipper ce dossier à la racine de la tablette/PC, puis",
-    "copier vos photos dans le dossier correspondant.",
-    "",
-  ].join("\n");
-  rootZip.file("README.txt", readme);
-
-  logInfo("Compression ZIP en cours…");
-  const blob = await zip.generateAsync(
-    { type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } },
-    (meta) => {
-      $progBar.style.width = meta.percent.toFixed(0) + "%";
-    }
-  );
-
-  // Télécharger
-  const safeName = (rootFolder || "SnakePhotos").replace(/[^\w\-]/g, "_");
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${safeName}_${new Date().toISOString().slice(0, 10)}.zip`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-
-  logOk(`ZIP téléchargé : ${a.download}`);
-  logInfo(`Taille : ${(blob.size / 1024).toFixed(1)} Ko`);
+  const getOrdre = c => { const n = safeInt(c.ordre); return n !== null ? n : 999999; };
+  out.sort((a, b) => getOrdre(a) - getOrdre(b));
+  return out;
 }
+
+// ---------- Chemin final d'une chambre ----------
+function cheminChambre(ch) {
+  const niveau1 = ch.fci !== "Sans_FCI"
+    ? `${ch.commune}-${ch.fci}`
+    : `${ch.commune}-${SUFFIXE_SANS_FCI}`;
+  let chemin = niveau1;
+  if (ch.cable) chemin += "/" + ch.cable;
+
+  const prefixe = $optPrefix.checked ? construirePrefixeOrdre(ch.ordre) : "";
+  let nomChambre = ch.ch1 ? `CH ${ch.ch1}` : "CH";
+  if (!ch.ordre) nomChambre += ` (${MARQUEUR_A_VALIDER})`;
+  if (ch.bpe)    nomChambre += ` (${ch.bpe})`;
+  return chemin + "/" + prefixe + nomChambre;
+}
+
+// ---------- Détection numéro chambre ----------
+function extraireNumeroChambre(nomFichier) {
+  const base = nomFichier.replace(/\.[^.]+$/, "");
+  const strictMatch = base.match(/(?:^|[^a-z0-9])ch[\s_\-]*([0-9]+)(?![0-9])/i);
+  if (strictMatch) return strictMatch[1];
+  if ($optMatch.value !== "strict") {
+    const looseMatch = base.match(/(?:^|[^a-z0-9])([0-9]{1,5})(?![0-9])/i);
+    if (looseMatch) return looseMatch[1];
+  }
+  return null;
+}
+
+// ---------- Détection sous-dossier depuis nom ----------
+function extraireSousDossier(nomFichier) {
+  const base = normaliser(nomFichier.replace(/\.[^.]+$/, ""));
+  const baseClean = base.replace(/(?:^|[^a-z0-9])ch[\s_\-]*[0-9]+/i, " ");
+  for (const rule of KEYWORDS_DEST) {
+    for (const k of rule.keys) {
+      const re = new RegExp(`(?:^|[^a-z0-9])${k.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}(?:[^a-z0-9]|$)`, "i");
+      if (re.test(baseClean)) return rule.dest;
+    }
+  }
+  return null;
+}
+
+// ---------- Détection sous-dossier depuis chemin relatif ----------
+// Retourne un des DOSSIERS_BASE/BOITE si trouvé dans le chemin
+function sousDossierDepuisChemin(relPath) {
+  // relPath = "CH12/MA/photo.jpg" ou "photos/CH12/MA/photo.jpg"
+  const parts = relPath.split("/").filter(Boolean);
+  // On cherche dans les composants du chemin (hors nom fichier)
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const comp = normaliser(parts[i]);
+    for (const d of DOSSIERS_BASE.concat(DOSSIERS_BOITE)) {
+      if (comp === normaliser(d)) return d;
+    }
+  }
+  return null;
+}
+
+// ---------- Calcul destination ----------
+function calculerDestination(p) {
+  // 1. Chercher numéro chambre : d'abord dans le nom du fichier, sinon dans le chemin
+  let num = extraireNumeroChambre(p.name);
+  if (!num && p.relPath) {
+    num = extraireNumeroChambre(p.relPath);
+  }
+  if (!num) {
+    p.assigned = false;
+    p.dest = "❌ Chambre non détectée";
+    p.chemin = null;
+    return;
+  }
+
+  const ch = chambres.find(c => String(c.ch1) === String(num));
+  if (!ch) {
+    p.assigned = false;
+    p.dest = `❌ CH ${num} introuvable dans CSV`;
+    p.chemin = null;
+    return;
+  }
+
+  const base = cheminChambre(ch);
+
+  // 2. Chercher sous-dossier : d'abord depuis le chemin (structure source), sinon depuis le nom
+  let sous = null;
+  if (p.relPath) {
+    sous = sousDossierDepuisChemin(p.relPath);
+  }
+  if (!sous) {
+    sous = extraireSousDossier(p.name);
+  }
+
+  // 3. Construire chemin final
+  if (sous) {
+    p.chemin = `${base}/${sous}/${p.name}`;
+    p.dest = `${base.split("/").pop()}/${sous}`;
+  } else if ($optKeepPath.checked && p.relPath && p.relPath.includes("/")) {
+    // Conserver l'arborescence source sous la chambre
+    const dirOnly = p.relPath.split("/").slice(0, -1).join("/");
+    if (dirOnly) {
+      p.chemin = `${base}/${dirOnly}/${p.name}`;
+      p.dest = `${base.split("/").pop()}/${dirOnly}`;
+    } else {
+      p.chemin = `${base}/${p.name}`;
+      p.dest = `${base.split("/").pop()}/`;
+    }
+  } else {
+    p.chemin = `${base}/${p.name}`;
+    p.dest = `${base.split("/").pop()}/`;
+  }
+  p.assigned = true;
+}
+
+// ---------- Recalcul global ----------
+function recalculerAssignations() {
+  for (const p of photos) calculerDestination(p);
+}
+
+// ---------- UI ----------
+function majUI() {
+  $statCh.textContent = chambres.length;
+  const assigned = photos.filter(p => p.assigned).length;
+  const unassigned = photos.length - assigned;
+  $statPh.textContent = assigned;
+  $statUn.textContent = unassigned;
+  $statUn.className = "stat-value " + (unassigned > 0 ? "err" : "");
+  $statDos.textContent = "—";
+
+  // Compteurs filtres
+  document.getElementById("countAll").textContent = photos.length;
+  document.getElementById("countAssigned").textContent = assigned;
+  document.getElementById("countUnassigned").textContent = unassigned;
+  $filterBar.style.display = photos.length ? "flex" : "none";
+
+  // Rendu liste
+  renderPhotoList();
+
+  // Boutons
+  $btnClearPh.disabled = photos.length === 0;
+  $btnRun.disabled = chambres.length === 0;
+}
+
+function renderPhotoList() {
+  $photoList.innerHTML = "";
+  const visible = photos.filter(p => {
+    if (currentFilter === "assigned") return p.assigned;
+    if (currentFilter === "unassigned") return !p.assigned;
+    return true;
+  });
+
+  visible.forEach(p => {
+    const realIdx = photos.indexOf(p);
+    const item = document.createElement("div");
+    item.className = "photo-item";
+
+    const thumb = document.createElement("img");
+    thumb.className = "thumb";
+    thumb.loading = "lazy";
+    if (p.url) thumb.src = p.url;
+
+    const info = document.createElement("div");
+    info.className = "info";
+    const nameEl = document.createElement("div");
+    nameEl.className = "name";
+    nameEl.textContent = p.name;
+    nameEl.title = p.name;
+    const pathEl = document.createElement("div");
+    pathEl.className = "path";
+    pathEl.textContent = p.relPath || "(fichier isolé)";
+    pathEl.title = p.relPath || "";
+    info.appendChild(nameEl);
+    info.appendChild(pathEl);
