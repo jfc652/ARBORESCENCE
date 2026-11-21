@@ -1,6 +1,6 @@
 /* =========================================================
    App Web - Arborescence Photos Chambres
-   Drag & Drop + Import dossier source complet
+   Drag & Drop + Import dossier source complet + PWA
    ========================================================= */
 
 // ---------- Constantes ----------
@@ -14,7 +14,7 @@ const DOSSIERS_BASE  = ["MA", "MB", "MC", "MD", "VUE_ENSEMBLE", "ETIQ_CABLE"];
 const DOSSIERS_BOITE = ["CASSETTE", "BOITE", "MIRE", "ETIQ_BOITE"];
 
 const KEYWORDS_DEST = [
-  { keys: ["etiq_boite", "etiquette_boite", "etiqboite", "etiquetteboite", "etiq-boite", "etiqboite"], dest: "ETIQ_BOITE" },
+  { keys: ["etiq_boite", "etiquette_boite", "etiqboite", "etiquetteboite", "etiq-boite"], dest: "ETIQ_BOITE" },
   { keys: ["etiq_cable", "etiquette_cable", "etiqcable", "etiquettecable", "etiq-cable"], dest: "ETIQ_CABLE" },
   { keys: ["vue_ensemble", "vueensemble", "vue-ensemble", "vue_ens", "ensemble", "vue"], dest: "VUE_ENSEMBLE" },
   { keys: ["cassette"], dest: "CASSETTE" },
@@ -81,9 +81,7 @@ function showLoader(text) {
   $loaderText.textContent = text || "Traitement en cours…";
   $loader.classList.add("active");
 }
-function hideLoader() {
-  $loader.classList.remove("active");
-}
+function hideLoader() { $loader.classList.remove("active"); }
 
 // ---------- Utilitaires ----------
 function safeInt(v) {
@@ -265,11 +263,8 @@ function extraireSousDossier(nomFichier) {
 }
 
 // ---------- Détection sous-dossier depuis chemin relatif ----------
-// Retourne un des DOSSIERS_BASE/BOITE si trouvé dans le chemin
 function sousDossierDepuisChemin(relPath) {
-  // relPath = "CH12/MA/photo.jpg" ou "photos/CH12/MA/photo.jpg"
   const parts = relPath.split("/").filter(Boolean);
-  // On cherche dans les composants du chemin (hors nom fichier)
   for (let i = parts.length - 2; i >= 0; i--) {
     const comp = normaliser(parts[i]);
     for (const d of DOSSIERS_BASE.concat(DOSSIERS_BOITE)) {
@@ -281,7 +276,6 @@ function sousDossierDepuisChemin(relPath) {
 
 // ---------- Calcul destination ----------
 function calculerDestination(p) {
-  // 1. Chercher numéro chambre : d'abord dans le nom du fichier, sinon dans le chemin
   let num = extraireNumeroChambre(p.name);
   if (!num && p.relPath) {
     num = extraireNumeroChambre(p.relPath);
@@ -303,21 +297,14 @@ function calculerDestination(p) {
 
   const base = cheminChambre(ch);
 
-  // 2. Chercher sous-dossier : d'abord depuis le chemin (structure source), sinon depuis le nom
   let sous = null;
-  if (p.relPath) {
-    sous = sousDossierDepuisChemin(p.relPath);
-  }
-  if (!sous) {
-    sous = extraireSousDossier(p.name);
-  }
+  if (p.relPath) sous = sousDossierDepuisChemin(p.relPath);
+  if (!sous) sous = extraireSousDossier(p.name);
 
-  // 3. Construire chemin final
   if (sous) {
     p.chemin = `${base}/${sous}/${p.name}`;
     p.dest = `${base.split("/").pop()}/${sous}`;
   } else if ($optKeepPath.checked && p.relPath && p.relPath.includes("/")) {
-    // Conserver l'arborescence source sous la chambre
     const dirOnly = p.relPath.split("/").slice(0, -1).join("/");
     if (dirOnly) {
       p.chemin = `${base}/${dirOnly}/${p.name}`;
@@ -348,16 +335,13 @@ function majUI() {
   $statUn.className = "stat-value " + (unassigned > 0 ? "err" : "");
   $statDos.textContent = "—";
 
-  // Compteurs filtres
   document.getElementById("countAll").textContent = photos.length;
   document.getElementById("countAssigned").textContent = assigned;
   document.getElementById("countUnassigned").textContent = unassigned;
   $filterBar.style.display = photos.length ? "flex" : "none";
 
-  // Rendu liste
   renderPhotoList();
 
-  // Boutons
   $btnClearPh.disabled = photos.length === 0;
   $btnRun.disabled = chambres.length === 0;
 }
@@ -392,3 +376,17 @@ function renderPhotoList() {
     pathEl.title = p.relPath || "";
     info.appendChild(nameEl);
     info.appendChild(pathEl);
+
+    const destEl = document.createElement("div");
+    destEl.className = "dest" + (p.assigned ? "" : " unassigned");
+    destEl.textContent = p.dest || "";
+    destEl.title = p.dest || "";
+
+    const rmBtn = document.createElement("button");
+    rmBtn.className = "remove";
+    rmBtn.textContent = "✕";
+    rmBtn.title = "Retirer";
+    rmBtn.dataset.idx = realIdx;
+
+    item.appendChild(thumb);
+    item.appendChild
