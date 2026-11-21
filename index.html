@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Arborescence Photos Chambres</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4caf50">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -40,7 +42,6 @@
   button.secondary:hover { background: #666; }
   button.secondary:disabled { background: #333; }
 
-  /* Drop zone */
   #dropZone {
     border: 3px dashed #555; border-radius: 12px; padding: 30px 20px;
     text-align: center; color: #888; transition: all 0.2s;
@@ -52,7 +53,6 @@
   #dropZone .icon { font-size: 2.5rem; margin-bottom: 10px; }
   #dropZone .hint { font-size: 0.8rem; color: #666; margin-top: 8px; }
 
-  /* Boutons import */
   .import-btns {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -67,7 +67,6 @@
   }
   .import-btns button:hover { background: #4a8dd8; }
 
-  /* Log */
   #log {
     background: #0f0f13; border: 1px solid #333; border-radius: 6px;
     padding: 12px; font-family: "Courier New", monospace; font-size: 0.78rem;
@@ -79,7 +78,6 @@
   .log-info { color: #a0d8ff; }
   .log-warn { color: #ffc857; }
 
-  /* Stats */
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
   .stat {
     background: #1e1e24; padding: 10px; border-radius: 6px; text-align: center;
@@ -89,7 +87,6 @@
   .stat-value.err { color: #ff6b6b; }
   .stat-label { font-size: 0.7rem; color: #888; margin-top: 2px; }
 
-  /* Progress */
   .progress-wrap {
     background: #1e1e24; border-radius: 6px; overflow: hidden;
     height: 8px; margin-top: 12px; display: none;
@@ -99,7 +96,6 @@
     width: 0%; transition: width 0.2s;
   }
 
-  /* Liste photos */
   #photoList {
     max-height: 350px; overflow-y: auto; margin-top: 12px;
     border: 1px solid #333; border-radius: 6px; background: #1a1a20;
@@ -161,7 +157,6 @@
   }
   .filter-bar button.active { background: #7fd67f; color: #1e1e24; }
 
-  /* Loader plein écran */
   #loader {
     display: none; position: fixed; inset: 0;
     background: rgba(0,0,0,0.85); z-index: 1000;
