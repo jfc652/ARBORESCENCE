@@ -1,6 +1,6 @@
 /* =========================================================
    App Web - Arborescence Photos Chambres
-   Drag & Drop + Import dossier source complet + PWA
+   Drag & Drop + Import dossier source + PWA installable
    ========================================================= */
 
 // ---------- Constantes ----------
@@ -52,6 +52,7 @@ const $photoList   = document.getElementById("photoList");
 const $filterBar   = document.getElementById("filterBar");
 const $loader      = document.getElementById("loader");
 const $loaderText  = document.getElementById("loaderText");
+const $installBtn  = document.getElementById("installBtn");
 
 // ---------- État ----------
 let csvContent = "";
@@ -359,34 +360,4 @@ function renderPhotoList() {
     const item = document.createElement("div");
     item.className = "photo-item";
 
-    const thumb = document.createElement("img");
-    thumb.className = "thumb";
-    thumb.loading = "lazy";
-    if (p.url) thumb.src = p.url;
-
-    const info = document.createElement("div");
-    info.className = "info";
-    const nameEl = document.createElement("div");
-    nameEl.className = "name";
-    nameEl.textContent = p.name;
-    nameEl.title = p.name;
-    const pathEl = document.createElement("div");
-    pathEl.className = "path";
-    pathEl.textContent = p.relPath || "(fichier isolé)";
-    pathEl.title = p.relPath || "";
-    info.appendChild(nameEl);
-    info.appendChild(pathEl);
-
-    const destEl = document.createElement("div");
-    destEl.className = "dest" + (p.assigned ? "" : " unassigned");
-    destEl.textContent = p.dest || "";
-    destEl.title = p.dest || "";
-
-    const rmBtn = document.createElement("button");
-    rmBtn.className = "remove";
-    rmBtn.textContent = "✕";
-    rmBtn.title = "Retirer";
-    rmBtn.dataset.idx = realIdx;
-
-    item.appendChild(thumb);
-    item.appendChild
+    const thumb = document.createElement
