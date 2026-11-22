@@ -62,6 +62,8 @@ const $lbImg       = document.getElementById("lbImg");
 const $lbPath      = document.getElementById("lbPath");
 const $lbClose     = document.getElementById("lbClose");
 const $lbRemove    = document.getElementById("lbRemove");
+const $unas        = document.getElementById("unassigned");
+const $unasWrap    = document.getElementById("unassignedWrap");
 
 // ---------- État ----------
 let csvContent = "";
@@ -248,14 +250,72 @@ function cheminChambre(ch) {
   return chemin + "/" + prefixe + nomChambre;
 }
 
-// ---------- Détection numéro chambre (CORRIGÉE) ----------
-function extraireNumeroChambre(nomFichier) {
-  const base = nomFichier.replace(/\.[^.]+$/, "");
-  const strictMatch = base.match(/(?:^|[^a-z0-9])ch[\s_\-]*([0-9]+)(?![0-9])/i);
-  if (strictMatch) return strictMatch[1];
+// ---------- Détection numéro chambre ----------
+// Ordre de recherche : dossiers parents (du plus proche au plus lointain), puis nom du fichier.
+// Les dates et heures (ex : WhatsApp Image 2026-09-30 at 14.39.37) sont ignorées,
+// et seul un numéro présent dans le CSV est retenu.
+const RE_CH = /(?:^|[^a-z0-9])(?:chambre|ch)[\s_.\-]*([0-9]+)(?![0-9])/i;
+
+function sansDatesHeures(txt) {
+  return String(txt)
+    .replace(/[0-9]{4}[-_.][0-9]{1,2}[-_.][0-9]{1,2}/g, " ")
+    .replace(/[0-9]{1,2}[-_.][0-9]{1,2}[-_.][0-9]{4}/g, " ")
+    .replace(/[0-9]{1,2}[.:h][0-9]{2}(?:[.:][0-9]{2})?/g, " ")
+    .replace(/[0-9]{5,}/g, " ");
+}
+
+function candidatsChambre(p) {
+  const out = [];
+  const add = n => { if (n && !out.includes(n)) out.push(n); };
+  const segs = (p.relPath || "").split("/").filter(Boolean);
+  const dossiers = segs.slice(0, -1).map(sansDatesHeures);
+
+  // 1. dossier de type "CH 52", "001 - CH 52 (A_Valider)", "Chambre 52"
+  for (let i = dossiers.length - 1; i >= 0; i--) {
+    const m = dossiers[i].match(RE_CH);
+    if (m) add(m[1]);
+  }
+  // 2. dossier dont le nom commence par un numéro : "52", "52 - photos"
+  for (let i = dossiers.length - 1; i >= 0; i--) {
+    const m = dossiers[i].match(/^\s*([0-9]{1,5})\s*(?:[-_. ]|$)/);
+    if (m) add(m[1]);
+  }
+  // 3. nom de fichier : "CH52_MA.jpg"
+  const base = sansDatesHeures(p.name.replace(/\.[^.]+$/, ""));
+  const mf = base.match(RE_CH);
+  if (mf) add(mf[1]);
+  // 4. mode souple : un nombre isolé dans le nom du fichier
   if ($optMatch.value !== "strict") {
-    const looseMatch = base.match(/(?:^|[^a-z0-9])([0-9]{1,4})(?![0-9])/i);
-    if (looseMatch) return looseMatch[1];
+    const re = /(?:^|[^0-9])([0-9]{1,4})(?![0-9])/g;
+    let m;
+    while ((m = re.exec(base)) !== null) add(m[1]);
+  }
+  return out;
+}
+
+// Dossiers à conserver sous la chambre : ceux qui suivent le dossier de la chambre
+// (ex : Photos/CH 52/Avant/x.jpg -> "Avant"), pour ne pas répéter "Photos/CH 52".
+function dossiersRestants(p) {
+  const dossiers = (p.relPath || "").split("/").filter(Boolean).slice(0, -1);
+  let idx = -1;
+  if (p.manual) idx = dossiers.length - 1;
+  else {
+    for (let i = dossiers.length - 1; i >= 0 && idx === -1; i--) {
+      if (RE_CH.test(sansDatesHeures(dossiers[i]))) idx = i;
+    }
+    for (let i = dossiers.length - 1; i >= 0 && idx === -1; i--) {
+      if (/^\s*[0-9]{1,5}\s*(?:[-_. ]|$)/.test(sansDatesHeures(dossiers[i]))) idx = i;
+    }
+  }
+  return dossiers.slice(idx + 1).join("/");
+}
+
+function sansZeros(v) { return String(v).trim().replace(/^0+(?=[0-9])/, ""); }
+
+function trouverChambre(candidats) {
+  for (const n of candidats) {
+    const ch = chambres.find(c => sansZeros(c.ch1) === sansZeros(n));
+    if (ch) return ch;
   }
   return null;
 }
@@ -285,39 +345,29 @@ function sousDossierDepuisChemin(relPath) {
   return null;
 }
 
-// ---------- Calcul destination (CORRIGÉ : priorité au dossier contenant "CH") ----------
+// ---------- Calcul destination ----------
 function calculerDestination(p) {
   p.chambre = null; p.base = null; p.sousRel = "";
-  let num = null;
-  let relPathClean = p.relPath || "";
+  let ch = null;
 
-  // PRIORITÉ 1 : On cherche un dossier au format "CH 123" dans le chemin
-  const matchDossier = relPathClean.match(/(?:^|\/)CH[\s_\-]*([0-9]+)(?![0-9])/i);
-  
-  if (matchDossier) {
-    num = matchDossier[1];
+  if (p.manual && chambres.includes(p.manual)) {
+    ch = p.manual;                       // choisie à la main
   } else {
-    // PRIORITÉ 2 : Si pas de dossier "CH", on cherche dans le nom du fichier
-    num = extraireNumeroChambre(p.name);
-    if (!num && p.relPath) {
-      num = extraireNumeroChambre(p.relPath);
+    p.manual = null;
+    const cands = candidatsChambre(p);
+    if (!cands.length) {
+      p.assigned = false;
+      p.dest = "❌ Chambre non détectée";
+      p.chemin = null;
+      return;
     }
-  }
-
-  if (!num) {
-    p.assigned = false;
-    p.dest = "❌ Chambre non détectée";
-    p.chemin = null;
-    return;
-  }
-
-  // On cherche la chambre dans le CSV
-  const ch = chambres.find(c => String(c.ch1) === String(num));
-  if (!ch) {
-    p.assigned = false;
-    p.dest = `❌ CH ${num} introuvable dans CSV`;
-    p.chemin = null;
-    return;
+    ch = trouverChambre(cands);
+    if (!ch) {
+      p.assigned = false;
+      p.dest = `❌ CH ${cands[0]} introuvable dans CSV`;
+      p.chemin = null;
+      return;
+    }
   }
 
   const base = cheminChambre(ch);
@@ -332,7 +382,7 @@ function calculerDestination(p) {
     p.chemin = `${base}/${sous}/${p.name}`;
     p.dest = `${base.split("/").pop()}/${sous}`;
   } else if ($optKeepPath.checked && p.relPath && p.relPath.includes("/")) {
-    const dirOnly = p.relPath.split("/").slice(0, -1).join("/");
+    const dirOnly = dossiersRestants(p);
     if (dirOnly) {
       p.sousRel = dirOnly;
       p.chemin = `${base}/${dirOnly}/${p.name}`;
@@ -370,6 +420,7 @@ function majUI() {
 
   renderPhotoList();
   renderArbo();
+  renderNonAssignees();
 
   $btnClearPh.disabled = photos.length === 0;
   $btnRun.disabled = chambres.length === 0;
@@ -612,6 +663,64 @@ function renderArbo() {
 $arboSearch.addEventListener("input", renderArbo);
 $btnArboOpen.addEventListener("click", () => $arbo.querySelectorAll("details").forEach(d => { d.open = true; }));
 $btnArboClose.addEventListener("click", () => $arbo.querySelectorAll("details").forEach(d => { d.open = false; }));
+
+// ---------- Photos non assignées : assignation manuelle par dossier ----------
+function dossierSource(p) {
+  const i = (p.relPath || "").lastIndexOf("/");
+  return i > 0 ? p.relPath.slice(0, i) : "";
+}
+
+function libelleChambre(ch) {
+  return `${cheminChambre(ch).split("/").pop()} · ${ch.commune}`;
+}
+
+function renderNonAssignees() {
+  $unas.innerHTML = "";
+  const non = photos.filter(p => !p.assigned);
+  $unasWrap.style.display = non.length ? "block" : "none";
+  if (!non.length) return;
+
+  const groupes = new Map();
+  non.forEach((p, i) => {
+    const dir = dossierSource(p);
+    const cle = dir || "\u0000" + i;           // fichiers isolés : un groupe chacun
+    if (!groupes.has(cle)) groupes.set(cle, { dir, liste: [] });
+    groupes.get(cle).liste.push(p);
+  });
+
+  groupes.forEach(g => {
+    const bloc = creerEl("div", "unas-group");
+    const titre = g.dir || g.liste[0].name;
+    bloc.appendChild(creerEl("div", "unas-title", titre));
+    bloc.appendChild(creerEl("div", "unas-sub",
+      `${g.liste.length} photo${g.liste.length > 1 ? "s" : ""} · ${g.liste[0].dest.replace("❌ ", "")}`));
+
+    const sel = document.createElement("select");
+    sel.setAttribute("aria-label", "Chambre pour " + titre);
+    const o0 = document.createElement("option");
+    o0.value = ""; o0.textContent = "Choisir la chambre…";
+    sel.appendChild(o0);
+    chambres.forEach((ch, i) => {
+      const o = document.createElement("option");
+      o.value = String(i); o.textContent = libelleChambre(ch);
+      sel.appendChild(o);
+    });
+    const btn = creerEl("button", "secondary", g.dir ? "Assigner tout le dossier" : "Assigner");
+    btn.type = "button";
+    btn.addEventListener("click", () => {
+      if (sel.value === "") return;
+      const ch = chambres[parseInt(sel.value, 10)];
+      g.liste.forEach(p => { p.manual = ch; });
+      logOk(`${g.liste.length} photo(s) assignée(s) à ${libelleChambre(ch)}`);
+      recalculerAssignations();
+      majUI();
+    });
+    const ligne = creerEl("div", "unas-row");
+    ligne.appendChild(sel); ligne.appendChild(btn);
+    bloc.appendChild(ligne);
+    $unas.appendChild(bloc);
+  });
+}
 
 // ---------- Suppression photo ----------
 $photoList.addEventListener("click", e => {
