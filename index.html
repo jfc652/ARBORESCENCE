@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Arborescence Photos Chambres</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4caf50">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SnakePhotos">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #1e1e24; color: #e8e8ec;
+    min-height: 100vh; padding: 16px; padding-bottom: 60px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; color: #7fd67f; }
+  .subtitle { font-size: 0.85rem; color: #999; margin-bottom: 20px; }
+
+  /* Bouton d'installation PWA */
+  #installBtn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #3a7bc8, #4a8dd8);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 12px rgba(58, 123, 200, 0.3);
+    transition: transform 0.15s, box-shadow 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  #installBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(58, 123, 200, 0.45);
+  }
+  #installBtn:active { transform: translateY(0); }
+  #installBtn[hidden] { display: none !important; }
+
+  .card {
+    background: #2a2a33; border-radius: 10px; padding: 16px;
+    margin-bottom: 14px; border: 1px solid #3a3a45;
+  }
+  .card h2 { font-size: 1rem; margin-bottom: 10px; color: #a0d8ff; }
+  label { display: block; font-size: 0.85rem; color: #b0b0ba; margin-bottom: 6px; margin-top: 10px; }
+  input[type="file"], input[type="text"], input[type="search"], select {
+    width: 100%; padding: 10px; background: #1e1e24;
+    border: 1px solid #444; border-radius: 6px;
+    color: #e8e8ec; font-size: 0.9rem;
+  }
+  input[type="text"]:focus, input[type="search"]:focus, input[type="file"]:focus, select:focus {
+    outline: none; border-color: #7fd67f;
+  }
+  button {
+    width: 100%; padding: 14px; background: #4caf50; color: #fff;
+    border: none; border-radius: 8px; font-size: 1rem; font-weight: 600;
+    cursor: pointer; margin-top: 16px; transition: background 0.2s;
+  }
+  button:hover { background: #5cc963; }
+  button:active { background: #3d9542; }
+  button:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
+  button.secondary { background: #555; font-size: 0.9rem; padding: 10px; }
+  button.secondary:hover { background: #666; }
+  button.secondary:disabled { background: #333; }
+
+  #dropZone {
+    border: 3px dashed #555; border-radius: 12px; padding: 30px 20px;
+    text-align: center; color: #888; transition: all 0.2s;
+    cursor: pointer; background: #1a1a20; margin-top: 12px;
+  }
+  #dropZone:hover, #dropZone.dragover {
+    border-color: #7fd67f; background: #1f2a1f; color: #7fd67f;
+  }
+  #dropZone .icon { font-size: 2.5rem; margin-bottom: 10px; }
+  #dropZone .hint { font-size: 0.8rem; color: #666; margin-top: 8px; }
+
+  .import-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .import-btns button {
+    margin-top: 0;
+    background: #3a7bc8;
+    font-size: 0.85rem;
+    padding: 12px;
+  }
+  .import-btns button:hover { background: #4a8dd8; }
+
+  #log {
+    background: #0f0f13; border: 1px solid #333; border-radius: 6px;
+    padding: 12px; font-family: "Courier New", monospace; font-size: 0.78rem;
+    height: 240px; overflow-y: auto; white-space: pre-wrap;
+    word-break: break-all; color: #b0b0ba;
+  }
+  .log-ok { color: #7fd67f; }
+  .log-err { color: #ff6b6b; }
+  .log-info { color: #a0d8ff; }
+  .log-warn { color: #ffc857; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
+  .stat {
+    background: #1e1e24; padding: 10px; border-radius: 6px; text-align: center;
+  }
+  .stat-value { font-size: 1.5rem; font-weight: 700; color: #7fd67f; }
+  .stat-value.warn { color: #ffc857; }
+  .stat-value.err { color: #ff6b6b; }
+  .stat-label { font-size: 0.7rem; color: #888; margin-top: 2px; }
+
+  .progress-wrap {
+    background: #1e1e24; border-radius: 6px; overflow: hidden;
+    height: 8px; margin-top: 12px; display: none;
+  }
+  .progress-bar {
+    height: 100%; background: linear-gradient(90deg, #4caf50, #7fd67f);
+    width: 0%; transition: width 0.2s;
+  }
+
+  #photoList {
+    max-height: 350px; overflow-y: auto; margin-top: 12px;
+    border: 1px solid #333; border-radius: 6px; background: #1a1a20;
+  }
+  #photoList:empty::after {
+    content: "Aucune photo importée";
+    display: block; padding: 20px; text-align: center;
+    color: #555; font-size: 0.85rem;
+  }
+  .photo-item {
+    display: flex; align-items: center; padding: 8px 12px;
+    border-bottom: 1px solid #2a2a33; font-size: 0.8rem; gap: 8px;
+  }
+  .photo-item:last-child { border-bottom: none; }
+  .photo-item .thumb {
+    width: 36px; height: 36px; object-fit: cover; border-radius: 4px;
+    background: #333; flex-shrink: 0;
+  }
+  .photo-item .info { flex: 1; overflow: hidden; }
+  .photo-item .name {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: #e8e8ec;
+  }
+  .photo-item .path {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: #777; font-size: 0.7rem; font-family: monospace;
+    margin-top: 2px;
+  }
+  .photo-item .dest {
+    color: #7fd67f; font-family: monospace; font-size: 0.72rem;
+    max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; text-align: right; flex-shrink: 0;
+  }
+  .photo-item .dest.unassigned { color: #ff6b6b; }
+  .photo-item .remove {
+    background: transparent; color: #ff6b6b; border: none;
+    cursor: pointer; font-size: 1.1rem; padding: 0 6px;
+    margin: 0; width: auto; flex-shrink: 0;
+  }
+  .photo-item .remove:hover { color: #fff; }
+
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 0.85rem; color: #a0d8ff; padding: 6px 0; }
+  details p { font-size: 0.8rem; color: #999; margin: 6px 0 6px 16px; }
+  details code {
+    background: #1a1a20; padding: 1px 5px; border-radius: 3px;
+    color: #ffc857; font-size: 0.75rem;
+  }
+
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row > * { flex: 1; }
+
+  .filter-bar {
+    display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;
+  }
+  .filter-bar button {
+    flex: 1; margin-top: 0; padding: 8px; font-size: 0.8rem;
+    background: #444;
+  }
+  .filter-bar button.active { background: #7fd67f; color: #1e1e24; }
+
+  #loader {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85); z-index: 1000;
+    align-items: center; justify-content: center; flex-direction: column;
+    color: #7fd67f; font-size: 1.1rem;
+  }
+  #loader.active { display: flex; }
+  #loader .spinner {
+    width: 60px; height: 60px; border: 4px solid #333;
+    border-top-color: #7fd67f; border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin-bottom: 20px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+
+  /* Arborescence */
+  #arbo { margin-top: 12px; font-family: "Courier New", monospace; font-size: 0.8rem; display: flex; flex-direction: column; gap: 6px; }
+  #arbo details { margin-top: 0; }
+  #arbo summary { color: #e8e8ec; padding: 8px 4px; min-height: 36px; overflow-wrap: anywhere; }
+  .arbo-n1 > summary { color: #a0d8ff; font-weight: 700; font-size: 0.88rem; }
+  .arbo-kids { margin-left: 10px; padding-left: 12px; border-left: 1px solid #3a3a45; display: flex; flex-direction: column; gap: 2px; }
+  .arbo-body { margin-left: 6px; padding: 0 0 8px 6px; display: flex; flex-direction: column; gap: 2px; }
+  .arbo-count { color: #888; font-weight: 400; }
+  .arbo-badge { display: inline-block; background: #1f2a1f; color: #7fd67f; border-radius: 6px; padding: 0 6px; font-size: 0.72rem; margin-left: 6px; }
+  .arbo-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 0 4px; }
+  .arbo-chip { background: #1e1e24; color: #999; border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; }
+  .arbo-chip.boite { color: #7fd67f; background: #1f2a1f; }
+  .arbo-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; padding: 6px 0 10px 8px; }
+  .arbo-thumb { margin: 0; padding: 4px; background: #1e1e24; border: 1px solid #3a3a45; border-radius: 8px; font-size: 0.66rem; font-weight: 400; color: #e8e8ec; display: flex; flex-direction: column; gap: 4px; text-align: left; }
+  .arbo-thumb:hover { background: #26262e; }
+  .arbo-thumb img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 5px; background: #333; display: block; }
+  .arbo-thumb span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .arbo-empty { color: #666; padding: 16px 0; text-align: center; font-family: inherit; }
+
+  #lightbox {
+    display: none; position: fixed; inset: 0; z-index: 1100; background: rgba(0,0,0,0.92);
+    flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  }
+  #lightbox.active { display: flex; }
+  #lightbox img { max-width: 100%; max-height: 68%; object-fit: contain; border-radius: 6px; }
+  #lbPath { font-family: monospace; font-size: 0.75rem; color: #b0b0ba; text-align: center; overflow-wrap: anywhere; max-width: 560px; }
+  #lightbox .lb-actions { display: flex; gap: 8px; width: 100%; max-width: 420px; }
+  #lightbox .lb-actions button { margin-top: 0; }
+
+  @media (max-width: 500px) {
+    h1 { font-size: 1.2rem; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .import-btns { grid-template-columns: 1fr; }
+    #dropZone { padding: 25px 12px; }
+    .photo-item .dest { max-width: 100px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🗂️ Arborescence Photos Chambres</h1>
+  <p class="subtitle">Génère l'arborescence et range automatiquement tes photos</p>
+
+  <!-- Bouton d'installation PWA (masqué par défaut) -->
+  <button id="installBtn" hidden>📲 Installer l'application</button>
+
+  <!-- Étape 1 : CSV -->
+  <div class="card">
+    <h2>1. Fichier CSV</h2>
+    <label for="csvFile">Sélectionner le fichier Chambres.csv</label>
+    <input type="file" id="csvFile" accept=".csv,text/csv">
+  </div>
+
+  <!-- Étape 2 : Paramètres -->
+  <div class="card">
+    <h2>2. Paramètres</h2>
+    <label for="rootName">Nom du dossier racine</label>
+    <input type="text" id="rootName" value="SnakePhotos" placeholder="SnakePhotos">
+    <details>
+      <summary>Options avancées</summary>
+      <label>
+        <input type="checkbox" id="optPrefix" checked>
+        Préfixer les dossiers par l'ordre (ex: 001 - CH 12)
+      </label>
+      <label>
+        <input type="checkbox" id="optBpeBoxes" checked>
+        Créer les sous-dossiers boîte si BPE
+      </label>
+      <label style="margin-top:14px">Mode de détection chambre dans le nom de photo</label>
+      <select id="optMatchMode">
+        <option value="strict">Strict (CH12, CH_12, CH-12 uniquement)</option>
+        <option value="loose">Souple (12_photo.jpg accepté)</option>
+        <option value="both" selected>Les deux (recommandé)</option>
+      </select>
+      <label>
+        <input type="checkbox" id="optKeepPath" checked>
+        Conserver l'arborescence source (dossier parent dans le chemin final)
+      </label>
+    </details>
+  </div>
+
+  <!-- Étape 3 : Photos -->
+  <div class="card">
+    <h2>3. Photos à ranger</h2>
+
+    <div id="dropZone">
+      <div class="icon">📸</div>
+      <div>Glissez vos photos ou dossiers ici</div>
+      <div class="hint">ou utilisez les boutons ci-dessous</div>
+    </div>
+
+    <div class="import-btns">
+      <button class="secondary" id="btnPickFiles">📄 Sélectionner des fichiers</button>
+      <button class="secondary" id="btnPickFolder">📁 Importer un dossier complet</button>
+    </div>
+
+    <input type="file" id="photoInput" accept="image/*" multiple style="display:none">
+    <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none">
+
+    <div class="filter-bar" id="filterBar" style="display:none">
+      <button data-filter="all" class="active">Toutes (<span id="countAll">0</span>)</button>
+      <button data-filter="assigned">✅ Assignées (<span id="countAssigned">0</span>)</button>
+      <button data-filter="unassigned">❌ Non assignées (<span id="countUnassigned">0</span>)</button>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button class="secondary" id="btnClearPhotos" disabled>🗑️ Tout retirer</button>
+    </div>
+
+    <div id="photoList"></div>
+
+    <details>
+      <summary>📖 Règles de nommage acceptées</summary>
+      <p>Le nom du fichier (ou de son dossier parent) doit contenir le numéro de chambre :</p>
+      <p><code>CH12_MA.jpg</code> → <code>CH 12/MA/</code></p>
+      <p><code>ch-12-vue_ensemble.png</code> → <code>CH 12/VUE_ENSEMBLE/</code></p>
+      <p><code>12_boite_01.jpg</code> → <code>CH 12/BOITE/</code></p>
+      <p><code>CH12_photo.jpg</code> → <code>CH 12/</code> (racine)</p>
+      <p style="margin-top:8px">💡 <strong>Astuce dossier :</strong> si vous importez un dossier <code>CH12/</code> contenant <code>MA/</code>, <code>MB/</code>…, la structure est automatiquement respectée.</p>
+    </details>
+  </div>
+
+  <!-- Étape 4 : Arborescence -->
+  <div class="card">
+    <h2>4. Arborescence</h2>
+    <label for="arboSearch">Retrouver une photo ou une chambre</label>
+    <input type="search" id="arboSearch" placeholder="Ex : 102, CH 38, MA, nom de fichier" autocomplete="off">
+    <div class="import-btns">
+      <button class="secondary" id="btnArboOpen" type="button">Tout déplier</button>
+      <button class="secondary" id="btnArboClose" type="button">Tout replier</button>
+    </div>
+    <div id="arbo"></div>
+  </div>
+
+  <!-- Étape 5 : Générer -->
+  <div class="card">
+    <h2>5. Génération</h2>
+    <button id="btnRun" disabled>🚀 GÉNÉRER LE ZIP (dossiers + photos)</button>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-value" id="statChambres">0</div>
+        <div class="stat-label">Chambres</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="statDossiers">0</div>
+        <div class="stat-label">Dossiers</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="statPhotos">0</div>
+        <div class="stat-label">Photos rangées</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value err" id="statUnassigned">0</div>
+        <div class="stat-label">Non assignées</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card">
+    <h2>📋 Journal</h2>
+    <div id="log">En attente…</div>
+    <button class="secondary" id="btnClear">Effacer le journal</button>
+  </div>
+</div>
+
+<div id="lightbox" role="dialog" aria-label="Photo">
+  <img id="lbImg" alt="">
+  <div id="lbPath"></div>
+  <div class="lb-actions">
+    <button class="secondary" id="lbRemove" type="button">Retirer</button>
+    <button class="secondary" id="lbClose" type="button">Fermer</button>
+  </div>
+</div>
+
+<div id="loader">
+  <div class="spinner"></div>
+  <div id="loaderText">Traitement en cours…</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
