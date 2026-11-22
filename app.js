@@ -11,7 +11,7 @@ const SEPARATEUR_PREFIXE = " - ";
 const PREFIXE_SANS_ORDRE = "ZZZ";
 
 const DOSSIERS_BASE  = ["MA", "MB", "MC", "MD", "VUE_ENSEMBLE", "ETIQ_CABLE"];
-const DOSSIERS_BOITE = ["CASSETTE", "BOITE", "MIRE", "ETIQ_BOITE"];
+const DOSSIERS_BOITE = ["CASSETTE", "BOITE", "MIRE", "MIRE_LG", "MIRE_L", "MIRE_P", "ETIQ_BOITE"];
 
 const KEYWORDS_DEST = [
   { keys: ["etiq_boite", "etiquette_boite", "etiqboite", "etiquetteboite", "etiq-boite"], dest: "ETIQ_BOITE" },
@@ -19,6 +19,9 @@ const KEYWORDS_DEST = [
   { keys: ["vue_ensemble", "vueensemble", "vue-ensemble", "vue_ens", "ensemble", "vue"], dest: "VUE_ENSEMBLE" },
   { keys: ["cassette"], dest: "CASSETTE" },
   { keys: ["boite", "boîte"], dest: "BOITE" },
+  { keys: ["mire_lg", "mire-lg", "mire lg", "mirelg"], dest: "MIRE_LG" },
+  { keys: ["mire_l", "mire-l", "mire l"], dest: "MIRE_L" },
+  { keys: ["mire_p", "mire-p", "mire p"], dest: "MIRE_P" },
   { keys: ["mire"], dest: "MIRE" },
   { keys: ["ma"], dest: "MA" },
   { keys: ["mb"], dest: "MB" },
@@ -1082,6 +1085,45 @@ function instructionsInstallation() {
   return "Sur ordinateur : cliquez sur l'icône d'installation à droite de la barre d'adresse de Chrome ou d'Edge.";
 }
 
+async function diagnosticInstallation() {
+  const lignes = [];
+  const ok = (b, t) => lignes.push((b ? "✅ " : "❌ ") + t);
+  ok(window.isSecureContext, "Page ouverte en HTTPS");
+
+  let man = null;
+  try {
+    const lien = document.querySelector('link[rel="manifest"]');
+    const r = await fetch(lien ? lien.href : "manifest.json", { cache: "no-store" });
+    ok(r.ok, "manifest.json trouvé");
+    if (r.ok) man = await r.json();
+  } catch (e) {
+    ok(false, "manifest.json introuvable ou invalide");
+  }
+
+  if (man) {
+    const icons = Array.isArray(man.icons) ? man.icons : [];
+    const tailles = icons.map(i => i.sizes || "").join(" ");
+    ok(/192x192/.test(tailles) && /512x512/.test(tailles), "Icônes 192x192 et 512x512 déclarées");
+    for (const ic of icons) {
+      try {
+        const r = await fetch(new URL(ic.src, document.baseURI), { cache: "no-store" });
+        const ct = r.headers.get("content-type") || "";
+        ok(r.ok && ct.startsWith("image/"), `Fichier ${ic.src} présent`);
+      } catch (e) {
+        ok(false, `Fichier ${ic.src} introuvable`);
+      }
+    }
+  }
+
+  try {
+    const reg = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    ok(!!reg, "Service worker (sw.js) enregistré");
+  } catch (e) {
+    ok(false, "Service worker (sw.js) indisponible");
+  }
+  return lignes;
+}
+
 if ($installBtn) {
   if (estInstallee()) {
     $installBtn.setAttribute("hidden", "");
@@ -1089,8 +1131,11 @@ if ($installBtn) {
 
   $installBtn.addEventListener("click", async () => {
     if (!deferredInstallPrompt) {
-      $installHelp.textContent = instructionsInstallation();
-      $installHelp.hidden = !$installHelp.hidden;
+      if (!$installHelp.hidden) { $installHelp.hidden = true; return; }
+      $installHelp.hidden = false;
+      $installHelp.textContent = "Vérification en cours…";
+      const lignes = await diagnosticInstallation();
+      $installHelp.textContent = instructionsInstallation() + "\n\nVérification :\n" + lignes.join("\n");
       return;
     }
     $installHelp.hidden = true;
