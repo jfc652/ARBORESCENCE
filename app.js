@@ -360,4 +360,406 @@ function renderPhotoList() {
     const item = document.createElement("div");
     item.className = "photo-item";
 
-    const thumb = document.createElement
+    const thumb = document.createElement("img");
+    thumb.className = "thumb";
+    thumb.loading = "lazy";
+    if (p.url) thumb.src = p.url;
+
+    const info = document.createElement("div");
+    info.className = "info";
+    const nameEl = document.createElement("div");
+    nameEl.className = "name";
+    nameEl.textContent = p.name;
+    nameEl.title = p.name;
+    const pathEl = document.createElement("div");
+    pathEl.className = "path";
+    pathEl.textContent = p.relPath || "(fichier isolé)";
+    pathEl.title = p.relPath || "";
+    info.appendChild(nameEl);
+    info.appendChild(pathEl);
+
+    const destEl = document.createElement("div");
+    destEl.className = "dest" + (p.assigned ? "" : " unassigned");
+    destEl.textContent = p.dest || "";
+    destEl.title = p.dest || "";
+
+    const rmBtn = document.createElement("button");
+    rmBtn.className = "remove";
+    rmBtn.textContent = "✕";
+    rmBtn.title = "Retirer";
+    rmBtn.dataset.idx = realIdx;
+
+    item.appendChild(thumb);
+    item.appendChild(info);
+    item.appendChild(destEl);
+    item.appendChild(rmBtn);
+    $photoList.appendChild(item);
+  });
+}
+
+// ---------- Suppression photo ----------
+$photoList.addEventListener("click", e => {
+  if (e.target.classList.contains("remove")) {
+    const idx = parseInt(e.target.dataset.idx, 10);
+    if (!isNaN(idx) && photos[idx]) {
+      if (photos[idx].url) URL.revokeObjectURL(photos[idx].url);
+      logInfo(`Retiré : ${photos[idx].name}`);
+      photos.splice(idx, 1);
+      majUI();
+    }
+  }
+});
+
+$btnClearPh.addEventListener("click", () => {
+  if (photos.length && confirm(`Retirer les ${photos.length} photo(s) ?`)) {
+    photos.forEach(p => { if (p.url) URL.revokeObjectURL(p.url); });
+    photos = [];
+    logInfo("Toutes les photos retirées");
+    majUI();
+  }
+});
+
+// ---------- Filtres ----------
+$filterBar.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-filter]");
+  if (!btn) return;
+  currentFilter = btn.dataset.filter;
+  $filterBar.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  renderPhotoList();
+});
+
+// ---------- Drag & Drop ----------
+$dropZone.addEventListener("click", () => $photoInput.click());
+
+["dragenter", "dragover"].forEach(ev => {
+  $dropZone.addEventListener(ev, e => {
+    e.preventDefault();
+    e.stopPropagation();
+    $dropZone.classList.add("dragover");
+  });
+});
+["dragleave", "drop"].forEach(ev => {
+  $dropZone.addEventListener(ev, e => {
+    e.preventDefault();
+    e.stopPropagation();
+    $dropZone.classList.remove("dragover");
+  });
+});
+
+$dropZone.addEventListener("drop", async e => {
+  const items = e.dataTransfer.items;
+  const files = e.dataTransfer.files;
+
+  if (items && items.length) {
+    const entries = [];
+    for (const item of items) {
+      if (item.kind === "file") {
+        const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+        if (entry) entries.push(entry);
+        else if (item.getAsFile) entries.push(item.getAsFile());
+      }
+    }
+    if (entries.length && entries[0] && (entries[0].isFile !== undefined)) {
+      await traiterEntries(entries);
+      return;
+    }
+  }
+
+  if (files && files.length) {
+    await ajouterPhotos(Array.from(files));
+  }
+});
+
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => e.preventDefault());
+
+// ---------- Import fichiers isolés ----------
+$btnPickFiles.addEventListener("click", () => $photoInput.click());
+
+$photoInput.addEventListener("change", async e => {
+  if (e.target.files.length) {
+    await ajouterPhotos(Array.from(e.target.files));
+  }
+  e.target.value = "";
+});
+
+// ---------- Import dossier complet ----------
+$btnPickFold.addEventListener("click", () => $folderInput.click());
+
+$folderInput.addEventListener("change", async e => {
+  if (!e.target.files.length) return;
+  showLoader("Analyse du dossier…");
+  try {
+    const files = Array.from(e.target.files).filter(f => f.type.startsWith("image/"));
+    logInfo(`${files.length} image(s) trouvée(s) dans le dossier`);
+    await ajouterPhotos(files);
+  } finally {
+    hideLoader();
+    e.target.value = "";
+  }
+});
+
+// ---------- Traitement des entries (drop dossier) ----------
+async function traiterEntries(entries) {
+  showLoader("Analyse du dossier glissé…");
+  try {
+    const allFiles = [];
+    await parcourirEntries(entries, allFiles, "");
+    logInfo(`${allFiles.length} image(s) trouvée(s) dans le drop`);
+    if (allFiles.length) await ajouterPhotos(allFiles);
+    else logWarn("Aucune image détectée dans le drop");
+  } catch (err) {
+    logErr("Erreur lecture drop : " + err.message);
+  } finally {
+    hideLoader();
+  }
+}
+
+async function parcourirEntries(entries, out, basePath) {
+  for (const entry of entries) {
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      if (file.type.startsWith("image/")) {
+        Object.defineProperty(file, "webkitRelativePath", {
+          value: basePath ? `${basePath}/${file.name}` : file.name,
+          configurable: true,
+        });
+        out.push(file);
+      }
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const childs = await lireRep(reader);
+      await parcourirEntries(childs, out, basePath ? `${basePath}/${entry.name}` : entry.name);
+    }
+  }
+}
+
+function lireRep(reader) {
+  return new Promise((resolve, reject) => {
+    const all = [];
+    const readBatch = () => {
+      reader.readEntries(batch => {
+        if (!batch.length) resolve(all);
+        else { all.push(...batch); readBatch(); }
+      }, reject);
+    };
+    readBatch();
+  });
+}
+
+// ---------- Ajout photos ----------
+async function ajouterPhotos(fileList) {
+  let ajoutees = 0;
+  for (const f of fileList) {
+    if (!f.type || !f.type.startsWith("image/")) continue;
+    const relPath = f.webkitRelativePath || "";
+    const deja = photos.find(p => p.name === f.name && p.size === f.size && p.relPath === relPath);
+    if (deja) continue;
+
+    const url = URL.createObjectURL(f);
+    photos.push({
+      file: f,
+      name: f.name,
+      size: f.size,
+      relPath: relPath,
+      url: url,
+      assigned: false,
+      dest: "",
+      chemin: null,
+    });
+    ajoutees++;
+  }
+
+  if (ajoutees) {
+    logOk(`${ajoutees} photo(s) ajoutée(s) (total : ${photos.length})`);
+    recalculerAssignations();
+    majUI();
+  } else {
+    logWarn("Aucune nouvelle photo valide (doublons ou types non supportés)");
+  }
+}
+
+// ---------- Changement d'options ----------
+[$optPrefix, $optBpeBox, $optMatch, $optKeepPath].forEach(el => {
+  if (el) el.addEventListener("change", () => {
+    recalculerAssignations();
+    majUI();
+  });
+});
+
+// ---------- Génération ZIP ----------
+$btnRun.addEventListener("click", async () => {
+  if (!chambres.length) return;
+  $btnRun.disabled = true;
+  $progWrap.style.display = "block";
+  $progBar.style.width = "0%";
+  $statDos.textContent = "0";
+
+  try {
+    await genererZip();
+  } catch (err) {
+    logErr("Erreur génération : " + err.message);
+    console.error(err);
+  } finally {
+    $btnRun.disabled = false;
+  }
+});
+
+async function genererZip() {
+  logInfo("Démarrage de la génération…");
+  if (typeof JSZip === "undefined") {
+    throw new Error("JSZip non chargé (vérifiez la connexion)");
+  }
+
+  const zip = new JSZip();
+  const rootFolder = ($rootName.value.trim() || "SnakePhotos").replace(/[^\w\-]/g, "_");
+  const rootZip = zip.folder(rootFolder);
+
+  let dossiersCrees = 0;
+  const total = chambres.length;
+  for (let i = 0; i < chambres.length; i++) {
+    const ch = chambres[i];
+    const base = cheminChambre(ch);
+    for (const sous of DOSSIERS_BASE) {
+      rootZip.file(`${base}/${sous}/.keep`, "");
+      dossiersCrees++;
+    }
+    if (ch.bpe && $optBpeBox.checked) {
+      for (const sous of DOSSIERS_BOITE) {
+        rootZip.file(`${base}/${sous}/.keep`, "");
+        dossiersCrees++;
+      }
+    }
+    if (i % 20 === 0) {
+      $progBar.style.width = Math.round(((i + 1) / total) * 40) + "%";
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+  $statDos.textContent = dossiersCrees;
+  logOk(`${dossiersCrees} dossiers créés`);
+
+  const assigned = photos.filter(p => p.assigned && p.chemin);
+  let photosRangees = 0;
+
+  for (let i = 0; i < assigned.length; i++) {
+    const p = assigned[i];
+    try {
+      const content = await p.file.arrayBuffer();
+      rootZip.file(p.chemin, content);
+      photosRangees++;
+    } catch (err) {
+      logWarn(`Échec ajout ${p.name} : ${err.message}`);
+    }
+    if (i % 5 === 0) {
+      $progBar.style.width = (40 + Math.round(((i + 1) / assigned.length) * 50)) + "%";
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+  logOk(`${photosRangees} photo(s) rangée(s)`);
+
+  const unassignedList = photos.filter(p => !p.assigned);
+  const readme = [
+    "====================================================",
+    "ARBORESCENCE PHOTOS CHAMBRES",
+    "====================================================",
+    "",
+    `Généré le : ${new Date().toLocaleString()}`,
+    `Source CSV : ${csvFileName || "(inconnu)"}`,
+    `Chambres : ${chambres.length}`,
+    `Dossiers créés : ${dossiersCrees}`,
+    `Photos rangées : ${photosRangees}`,
+    `Photos non assignées : ${unassignedList.length}`,
+    "",
+    "STRUCTURE PAR CHAMBRE :",
+    ...DOSSIERS_BASE.map(d => `  - ${d}`),
+    "",
+    "SI BPE (Boîte) :",
+    ...DOSSIERS_BOITE.map(d => `  - ${d}`),
+    "",
+  ];
+  if (unassignedList.length) {
+    readme.push("PHOTOS NON ASSIGNÉES (à placer manuellement) :");
+    unassignedList.forEach(p => {
+      readme.push(`  - ${p.name} (${p.relPath || "isolé"}) : ${p.dest}`);
+    });
+    readme.push("");
+  }
+  rootZip.file("README.txt", readme.join("\n"));
+
+  logInfo("Compression en cours…");
+  $progBar.style.width = "90%";
+  const blob = await zip.generateAsync(
+    { type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } },
+    (meta) => {
+      $progBar.style.width = (90 + Math.round(meta.percent / 10)) + "%";
+    }
+  );
+
+  $progBar.style.width = "100%";
+  const safeName = (rootFolder || "SnakePhotos").replace(/[^\w\-]/g, "_");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const filename = `${safeName}_${dateStr}.zip`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+  logOk(`ZIP téléchargé : ${filename}`);
+  logInfo(`Taille : ${(blob.size / 1024 / 1024).toFixed(2)} Mo`);
+
+  setTimeout(() => {
+    $progWrap.style.display = "none";
+    $progBar.style.width = "0%";
+  }, 1500);
+}
+
+// =========================================================
+// PWA : installation personnalisée
+// =========================================================
+let deferredInstallPrompt = null;
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  if ($installBtn) {
+    $installBtn.removeAttribute("hidden");
+    logInfo("📲 Application prête à être installée");
+  }
+});
+
+if ($installBtn) {
+  $installBtn.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) {
+      logWarn("Installation non disponible sur ce navigateur");
+      return;
+    }
+    $installBtn.setAttribute("hidden", "");
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    logInfo(`Choix d'installation : ${outcome === "accepted" ? "Accepté ✅" : "Refusé ❌"}`);
+    deferredInstallPrompt = null;
+  });
+}
+
+window.addEventListener("appinstalled", () => {
+  logOk("Application installée avec succès !");
+  if ($installBtn) $installBtn.setAttribute("hidden", "");
+  deferredInstallPrompt = null;
+});
+
+// =========================================================
+// PWA : enregistrement du Service Worker
+// =========================================================
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js")
+      .then(reg => console.log("✅ SW enregistré :", reg.scope))
+      .catch(err => console.error("❌ SW erreur :", err));
+  });
+}
