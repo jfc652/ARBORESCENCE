@@ -238,13 +238,13 @@ function cheminChambre(ch) {
   return chemin + "/" + prefixe + nomChambre;
 }
 
-// ---------- Détection numéro chambre ----------
+// ---------- Détection numéro chambre (CORRIGÉE) ----------
 function extraireNumeroChambre(nomFichier) {
   const base = nomFichier.replace(/\.[^.]+$/, "");
   const strictMatch = base.match(/(?:^|[^a-z0-9])ch[\s_\-]*([0-9]+)(?![0-9])/i);
   if (strictMatch) return strictMatch[1];
   if ($optMatch.value !== "strict") {
-    const looseMatch = base.match(/(?:^|[^a-z0-9])([0-9]{1,5})(?![0-9])/i);
+    const looseMatch = base.match(/(?:^|[^a-z0-9])([0-9]{1,4})(?![0-9])/i);
     if (looseMatch) return looseMatch[1];
   }
   return null;
@@ -275,12 +275,24 @@ function sousDossierDepuisChemin(relPath) {
   return null;
 }
 
-// ---------- Calcul destination ----------
+// ---------- Calcul destination (CORRIGÉ : priorité au dossier contenant "CH") ----------
 function calculerDestination(p) {
-  let num = extraireNumeroChambre(p.name);
-  if (!num && p.relPath) {
-    num = extraireNumeroChambre(p.relPath);
+  let num = null;
+  let relPathClean = p.relPath || "";
+
+  // PRIORITÉ 1 : On cherche un dossier au format "CH 123" dans le chemin
+  const matchDossier = relPathClean.match(/(?:^|\/)CH[\s_\-]*([0-9]+)(?![0-9])/i);
+  
+  if (matchDossier) {
+    num = matchDossier[1];
+  } else {
+    // PRIORITÉ 2 : Si pas de dossier "CH", on cherche dans le nom du fichier
+    num = extraireNumeroChambre(p.name);
+    if (!num && p.relPath) {
+      num = extraireNumeroChambre(p.relPath);
+    }
   }
+
   if (!num) {
     p.assigned = false;
     p.dest = "❌ Chambre non détectée";
@@ -288,6 +300,7 @@ function calculerDestination(p) {
     return;
   }
 
+  // On cherche la chambre dans le CSV
   const ch = chambres.find(c => String(c.ch1) === String(num));
   if (!ch) {
     p.assigned = false;
