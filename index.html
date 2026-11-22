@@ -6,6 +6,9 @@
 <title>Arborescence Photos Chambres</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#4caf50">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SnakePhotos">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -16,6 +19,33 @@
   .container { max-width: 960px; margin: 0 auto; }
   h1 { font-size: 1.4rem; margin-bottom: 4px; color: #7fd67f; }
   .subtitle { font-size: 0.85rem; color: #999; margin-bottom: 20px; }
+
+  /* Bouton d'installation PWA */
+  #installBtn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #3a7bc8, #4a8dd8);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 12px rgba(58, 123, 200, 0.3);
+    transition: transform 0.15s, box-shadow 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  #installBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(58, 123, 200, 0.45);
+  }
+  #installBtn:active { transform: translateY(0); }
+  #installBtn[hidden] { display: none !important; }
+
   .card {
     background: #2a2a33; border-radius: 10px; padding: 16px;
     margin-bottom: 14px; border: 1px solid #3a3a45;
@@ -184,6 +214,9 @@
 <div class="container">
   <h1>🗂️ Arborescence Photos Chambres</h1>
   <p class="subtitle">Génère l'arborescence et range automatiquement tes photos</p>
+
+  <!-- Bouton d'installation PWA (masqué par défaut) -->
+  <button id="installBtn" hidden>📲 Installer l'application</button>
 
   <!-- Étape 1 : CSV -->
   <div class="card">
