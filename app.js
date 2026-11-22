@@ -53,6 +53,15 @@ const $filterBar   = document.getElementById("filterBar");
 const $loader      = document.getElementById("loader");
 const $loaderText  = document.getElementById("loaderText");
 const $installBtn  = document.getElementById("installBtn");
+const $arbo        = document.getElementById("arbo");
+const $arboSearch  = document.getElementById("arboSearch");
+const $btnArboOpen = document.getElementById("btnArboOpen");
+const $btnArboClose= document.getElementById("btnArboClose");
+const $lightbox    = document.getElementById("lightbox");
+const $lbImg       = document.getElementById("lbImg");
+const $lbPath      = document.getElementById("lbPath");
+const $lbClose     = document.getElementById("lbClose");
+const $lbRemove    = document.getElementById("lbRemove");
 
 // ---------- État ----------
 let csvContent = "";
@@ -60,6 +69,7 @@ let csvFileName = "";
 let chambres = [];
 let photos = [];
 let currentFilter = "all";
+let lightboxPhoto = null;
 
 // ---------- Log ----------
 function log(msg, cls = "") {
@@ -105,7 +115,7 @@ function construirePrefixeOrdre(ordre) {
 function normaliser(txt) {
   return String(txt).toLowerCase().trim()
     .replace(/[âà]/g, "a").replace(/[éèê]/g, "e")
-    .replace(/îï/g, "i").replace(/ô/g, "o")
+    .replace(/[îï]/g, "i").replace(/ô/g, "o")
     .replace(/[ûù]/g, "u").replace(/ç/g, "c");
 }
 
@@ -277,6 +287,7 @@ function sousDossierDepuisChemin(relPath) {
 
 // ---------- Calcul destination (CORRIGÉ : priorité au dossier contenant "CH") ----------
 function calculerDestination(p) {
+  p.chambre = null; p.base = null; p.sousRel = "";
   let num = null;
   let relPathClean = p.relPath || "";
 
@@ -315,12 +326,15 @@ function calculerDestination(p) {
   if (p.relPath) sous = sousDossierDepuisChemin(p.relPath);
   if (!sous) sous = extraireSousDossier(p.name);
 
+  p.chambre = ch; p.base = base;
   if (sous) {
+    p.sousRel = sous;
     p.chemin = `${base}/${sous}/${p.name}`;
     p.dest = `${base.split("/").pop()}/${sous}`;
   } else if ($optKeepPath.checked && p.relPath && p.relPath.includes("/")) {
     const dirOnly = p.relPath.split("/").slice(0, -1).join("/");
     if (dirOnly) {
+      p.sousRel = dirOnly;
       p.chemin = `${base}/${dirOnly}/${p.name}`;
       p.dest = `${base.split("/").pop()}/${dirOnly}`;
     } else {
@@ -355,6 +369,7 @@ function majUI() {
   $filterBar.style.display = photos.length ? "flex" : "none";
 
   renderPhotoList();
+  renderArbo();
 
   $btnClearPh.disabled = photos.length === 0;
   $btnRun.disabled = chambres.length === 0;
@@ -409,6 +424,194 @@ function renderPhotoList() {
     $photoList.appendChild(item);
   });
 }
+
+// ---------- Arborescence (vue des dossiers + photos) ----------
+function niveau1Chambre(ch) {
+  return ch.fci !== "Sans_FCI"
+    ? `${ch.commune}-${ch.fci}`
+    : `${ch.commune}-${SUFFIXE_SANS_FCI}`;
+}
+
+function creerEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function photoCorrespond(p, q) {
+  if (!q) return true;
+  const hay = normaliser(`${p.name} ${p.relPath || ""} ${p.base || ""}`);
+  return hay.includes(q);
+}
+
+function retirerPhoto(p) {
+  const i = photos.indexOf(p);
+  if (i === -1) return;
+  if (p.url) URL.revokeObjectURL(p.url);
+  logInfo(`Retiré : ${p.name}`);
+  photos.splice(i, 1);
+  majUI();
+}
+
+function ouvrirVisionneuse(p) {
+  lightboxPhoto = p;
+  $lbImg.src = p.url;
+  $lbPath.textContent = p.chemin || p.name;
+  $lightbox.classList.add("active");
+}
+function fermerVisionneuse() {
+  $lightbox.classList.remove("active");
+  $lbImg.removeAttribute("src");
+  lightboxPhoto = null;
+}
+$lbClose.addEventListener("click", fermerVisionneuse);
+$lightbox.addEventListener("click", e => { if (e.target === $lightbox) fermerVisionneuse(); });
+$lbRemove.addEventListener("click", () => {
+  const p = lightboxPhoto;
+  fermerVisionneuse();
+  if (p) retirerPhoto(p);
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && $lightbox.classList.contains("active")) fermerVisionneuse();
+});
+
+function noeudDossierPhotos(label, liste, ouvert) {
+  const det = creerEl("details", "arbo-dir");
+  det.open = !!ouvert;
+  const sum = creerEl("summary", null, `${label}/ `);
+  sum.appendChild(creerEl("span", "arbo-count", `(${liste.length})`));
+  det.appendChild(sum);
+  const grille = creerEl("div", "arbo-thumbs");
+  let rempli = false;
+  const remplir = () => {
+    if (rempli || !det.open) return;
+    rempli = true;
+    for (const p of liste) {
+      const b = creerEl("button", "arbo-thumb secondary");
+      b.type = "button";
+      b.title = p.chemin || p.name;
+      const img = document.createElement("img");
+      img.alt = "";
+      img.loading = "lazy";
+      img.src = p.url;
+      img.addEventListener("error", () => img.removeAttribute("src"));
+      b.appendChild(img);
+      b.appendChild(creerEl("span", null, p.name));
+      b.addEventListener("click", () => ouvrirVisionneuse(p));
+      grille.appendChild(b);
+    }
+  };
+  det.addEventListener("toggle", remplir);
+  det.appendChild(grille);
+  remplir();
+  return det;
+}
+
+function noeudChambre(ch, base, parSous, q) {
+  const nomChambre = base.split("/").pop();
+  let total = 0;
+  parSous.forEach(l => { total += l.length; });
+  const det = creerEl("details", "arbo-ch");
+  det.open = !!q;
+  const sum = creerEl("summary", null, `${nomChambre}/`);
+  if (total) sum.appendChild(creerEl("span", "arbo-badge", `${total} photo${total > 1 ? "s" : ""}`));
+  det.appendChild(sum);
+
+  const corps = creerEl("div", "arbo-body");
+  const chips = creerEl("div", "arbo-chips");
+  const noms = DOSSIERS_BASE.slice();
+  if (ch.bpe && $optBpeBox.checked) noms.push(...DOSSIERS_BOITE);
+  parSous.forEach((_, k) => { if (k !== "" && !noms.includes(k)) noms.push(k); });
+
+  for (const k of noms) {
+    const liste = (parSous.get(k) || []).filter(p => photoCorrespond(p, q) || normaliser(base).includes(q));
+    if (liste.length) corps.appendChild(noeudDossierPhotos(k, liste, !!q));
+    else if (!q) chips.appendChild(creerEl("span", "arbo-chip" + (DOSSIERS_BOITE.includes(k) ? " boite" : ""), k));
+  }
+  const racine = (parSous.get("") || []).filter(p => photoCorrespond(p, q) || normaliser(base).includes(q));
+  if (racine.length) corps.appendChild(noeudDossierPhotos("(racine)", racine, !!q));
+  if (chips.childNodes.length) corps.appendChild(chips);
+  det.appendChild(corps);
+  return det;
+}
+
+function renderArbo() {
+  const q = normaliser($arboSearch.value || "");
+  $arbo.innerHTML = "";
+  if (!chambres.length) {
+    $arbo.appendChild(creerEl("p", "arbo-empty", "Importez le CSV pour voir l'arborescence."));
+    return;
+  }
+
+  // photos assignées regroupées par chambre puis par sous-dossier
+  const parBase = new Map();
+  for (const p of photos) {
+    if (!p.assigned || !p.base) continue;
+    if (!parBase.has(p.base)) parBase.set(p.base, new Map());
+    const m = parBase.get(p.base);
+    if (!m.has(p.sousRel)) m.set(p.sousRel, []);
+    m.get(p.sousRel).push(p);
+  }
+
+  const groupes = new Map(); // niveau1 -> Map(câble -> [chambres])
+  for (const ch of chambres) {
+    const n1 = niveau1Chambre(ch);
+    if (!groupes.has(n1)) groupes.set(n1, new Map());
+    const g = groupes.get(n1);
+    const cle = ch.cable || "";
+    if (!g.has(cle)) g.set(cle, []);
+    g.get(cle).push(ch);
+  }
+
+  let affiche = false;
+  groupes.forEach((cables, n1) => {
+    const kids = creerEl("div", "arbo-kids");
+    let total = 0, visibles = 0;
+
+    const ajouter = (hote, ch) => {
+      total++;
+      const base = cheminChambre(ch);
+      const parSous = parBase.get(base) || new Map();
+      let nbPhotos = 0;
+      parSous.forEach(l => { nbPhotos += l.length; });
+      const nomMatch = q && normaliser(base).includes(q);
+      const photoMatch = q && [...parSous.values()].some(l => l.some(p => photoCorrespond(p, q)));
+      if (q && !nomMatch && !photoMatch) return;
+      hote.appendChild(noeudChambre(ch, base, parSous, q));
+      visibles++;
+    };
+
+    cables.forEach((liste, cable) => {
+      if (cable) {
+        const d2 = creerEl("details", "arbo-cable");
+        d2.open = !!q;
+        d2.appendChild(creerEl("summary", null, `${cable}/`));
+        const k2 = creerEl("div", "arbo-kids");
+        liste.forEach(ch => ajouter(k2, ch));
+        if (k2.childNodes.length) { d2.appendChild(k2); kids.appendChild(d2); }
+      } else {
+        liste.forEach(ch => ajouter(kids, ch));
+      }
+    });
+
+    if (!visibles) return;
+    affiche = true;
+    const d1 = creerEl("details", "arbo-n1");
+    d1.open = true;
+    const s1 = creerEl("summary", null, `${n1}/ `);
+    s1.appendChild(creerEl("span", "arbo-count", `(${total})`));
+    d1.appendChild(s1);
+    d1.appendChild(kids);
+    $arbo.appendChild(d1);
+  });
+
+  if (!affiche) $arbo.appendChild(creerEl("p", "arbo-empty", "Aucun résultat pour cette recherche."));
+}
+
+$arboSearch.addEventListener("input", renderArbo);
+$btnArboOpen.addEventListener("click", () => $arbo.querySelectorAll("details").forEach(d => { d.open = true; }));
+$btnArboClose.addEventListener("click", () => $arbo.querySelectorAll("details").forEach(d => { d.open = false; }));
 
 // ---------- Suppression photo ----------
 $photoList.addEventListener("click", e => {
@@ -653,13 +856,26 @@ async function genererZip() {
   logOk(`${dossiersCrees} dossiers créés`);
 
   const assigned = photos.filter(p => p.assigned && p.chemin);
+  const utilises = new Set();
+  for (const p of assigned) {
+    let chemin = p.chemin, n = 1;
+    while (utilises.has(chemin.toLowerCase())) {
+      n++;
+      const dot = p.chemin.lastIndexOf(".");
+      chemin = dot > p.chemin.lastIndexOf("/") + 1
+        ? `${p.chemin.slice(0, dot)}_${n}${p.chemin.slice(dot)}`
+        : `${p.chemin}_${n}`;
+    }
+    utilises.add(chemin.toLowerCase());
+    p.cheminZip = chemin;
+  }
   let photosRangees = 0;
 
   for (let i = 0; i < assigned.length; i++) {
     const p = assigned[i];
     try {
       const content = await p.file.arrayBuffer();
-      rootZip.file(p.chemin, content);
+      rootZip.file(p.cheminZip || p.chemin, content);
       photosRangees++;
     } catch (err) {
       logWarn(`Échec ajout ${p.name} : ${err.message}`);
